@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Thu Hộ</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            background-color: #f4f7f9;
+        }
+        .container {
+            padding: 1.5em;
+        }
+        .filter-container {
+            background-color: white;
+            padding: 1em;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            margin-bottom: 1.5em;
+            display: flex;
+            align-items: center;
+            gap: 1em;
+        }
+        button {
+            padding: 8px 16px;
+            background-color: #0078d7;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        button:hover { background-color: #005a9e; }
+        .content-wrapper {
+            display: flex;
+            gap: 1.5em;
+            align-items: flex-start;
+        }
+        .main-content {
+            flex: 3;
+        }
+        .right-column {
+            flex: 2;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5em;
+        }
+        .panel {
+            background-color: white;
+            padding: 1em;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border: 1px solid #eee; padding: 10px; text-align: left; }
+        th { background-color: #f8f9fa; }
+        h1, h2 { color: #333; margin-top: 0; }
+        .total-row td {
+            font-weight: bold;
+            background-color: #f0f2f5;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Dashboard Phân Tích Thu Hộ</h1>
+    <div class="filter-container">
+        <label for="from-date"><b>Từ ngày:</b></label>
+        <input type="date" id="from-date">
+        <label for="to-date"><b>Đến ngày:</b></label>
+        <input type="date" id="to-date">
+        <button id="fetch-button">Xem Dữ Liệu</button>
+        <button id="export-button" style="background-color: #107c10;">Xuất Excel</button>
+    </div>
+    <div class="content-wrapper">
+        <div class="main-content panel">
+            <h2>Bảng Tổng Hợp Doanh Thu</h2>
+            <table id="results-table">
+                <thead>
+                    <tr>
+                        <th>Ngân Hàng</th>
+                        <th>Tổng cộng</th>
+                        <th>Tổng hoá đơn</th>
+                        <th>Tỷ lệ (%)</th>
+                    </tr>
+                </thead>
+                <tbody id="results-table-body"></tbody>
+            </table>
+        </div>
+        <div class="right-column">
+            <div class="sidebar panel">
+                <h2>Phân Tích Tồn</h2>
+                <div id="analysis-container"></div>
+            </div>
+            <div class="chart-container panel">
+                <h2>Biểu Đồ Doanh Thu</h2>
+                <canvas id="myChart"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+    const fromDateInput = document.getElementById('from-date');
+    const toDateInput = document.getElementById('to-date');
+    const fetchButton = document.getElementById('fetch-button');
+    const exportButton = document.getElementById('export-button');
+    const tableBody = document.getElementById('results-table-body');
+    const analysisContainer = document.getElementById('analysis-container');
+    const chartCanvas = document.getElementById('myChart');
+    let myChart = null;
+
+    function formatDate(date) { return date.toISOString().split('T')[0]; }
+
+    function renderChart(chartLabels, chartData) {
+        if (myChart) { myChart.destroy(); }
+        myChart = new Chart(chartCanvas, {
+            type: 'bar',
+            data: { labels: chartLabels, datasets: [{ label: 'Tổng Doanh Thu (VND)', data: chartData, backgroundColor: 'rgba(75, 192, 192, 0.6)', borderColor: 'rgba(75, 192, 192, 1)', borderWidth: 1 }] },
+            options: { scales: { y: { beginAtZero: true, ticks: { callback: value => value.toLocaleString('vi-VN') } } }, plugins: { legend: { display: false }, tooltip: { callbacks: { label: context => `${context.dataset.label || ''}: ${context.parsed.y.toLocaleString('vi-VN')} VND` } } } }
+        });
+    }
+
+    function fetchMainData() {
+        const fromDate = fromDateInput.value;
+        const toDate = toDateInput.value;
+        tableBody.innerHTML = '<tr><td colspan="4">Đang tải dữ liệu...</td></tr>';
+        const apiUrl = `/api/main_data?from_date=${fromDate}&to_date=${toDate}`;
+
+        fetch(apiUrl)
+            .then(response => {
+                if (!response.ok) { // Nếu response không thành công (như lỗi 500)
+                    throw new Error(`Lỗi mạng: ${response.statusText}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                tableBody.innerHTML = '';
+                if (!data || !Array.isArray(data) || data.length === 0 || (data.length === 1 && data[0]['Ngân Hàng'] === 'Tổng cộng' && data[0]['Tổng cộng'] === 0)) {
+                    tableBody.innerHTML = '<tr><td colspan="4">Không có dữ liệu.</td></tr>';
+                    if(myChart) { myChart.destroy(); myChart = null; }
+                    return;
+                }
+                data.forEach(rowData => {
+                    let row = tableBody.insertRow();
+                    if (rowData['Ngân Hàng'] === 'Tổng cộng') { row.classList.add('total-row'); }
+                    row.insertCell().textContent = rowData['Ngân Hàng'];
+                    let cellTotal = row.insertCell();
+                    cellTotal.textContent = Number(rowData['Tổng cộng']).toLocaleString('vi-VN');
+                    cellTotal.style.textAlign = 'right';
+                    let cellInvoices = row.insertCell();
+                    cellInvoices.textContent = Number(rowData['Tổng hoá đơn']).toLocaleString('vi-VN');
+                    cellInvoices.style.textAlign = 'right';
+                    let cellPercent = row.insertCell();
+                    cellPercent.textContent = Number(rowData['Tỷ lệ (%)']).toFixed(2) + '%';
+                    cellPercent.style.textAlign = 'right';
+                });
+                const chartData = data.filter(item => item['Ngân Hàng'] !== 'Tổng cộng');
+                chartData.sort((a, b) => b['Tổng cộng'] - a['Tổng cộng']);
+                const labels = chartData.map(item => item['Ngân Hàng']);
+                const values = chartData.map(item => item['Tổng cộng']);
+                renderChart(labels, values);
+            })
+            .catch(error => {
+                console.error('Lỗi khi gọi API main_data:', error);
+                tableBody.innerHTML = `<tr><td colspan="4">Có lỗi xảy ra: ${error.message}</td></tr>`;
+            });
+    }
+
+    function fetchAnalysisData() {
+         fetch('/api/analysis_data').then(response => response.json()).then(data => {
+                let tableHTML = '<table><tbody>';
+                for (const [key, value] of Object.entries(data)) {
+                    tableHTML += `<tr><td><strong>${key}</strong></td><td style="text-align: right;">${value.toLocaleString('vi-VN')}</td></tr>`;
+                }
+                tableHTML += '</tbody></table>';
+                analysisContainer.innerHTML = tableHTML;
+            }).catch(error => console.error('Lỗi khi gọi API analysis_data:', error));
+    }
+
+    function exportToExcel() {
+        const fromDate = fromDateInput.value;
+        const toDate = toDateInput.value;
+        const exportUrl = `/api/export_excel?from_date=${fromDate}&to_date=${toDate}`;
+        window.location.href = exportUrl;
+    }
+
+    fetchButton.addEventListener('click', fetchMainData);
+    exportButton.addEventListener('click', exportToExcel);
+
+    document.addEventListener('DOMContentLoaded', function() {
+        const today = new Date();
+        fromDateInput.value = formatDate(today);
+        toDateInput.value = formatDate(today);
+        fetchMainData();
+        fetchAnalysisData();
+    });
+</script>
+</body>
+</html>
