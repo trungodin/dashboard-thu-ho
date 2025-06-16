@@ -1,0 +1,14 @@
+# Môi trường ảo
+venv/
+venv_new/
+*.venv
+
+# Python cache
+__pycache__/
+*.pyc
+
+# PyCharm files
+.idea/
+
+# Các file hệ thống
+.DS_Store
